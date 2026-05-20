@@ -231,6 +231,7 @@ async function fetchRepoAndIssues() {
     } finally {
         setLoading(false);
         removeSkeletons();
+        updateCounts();
     }
 }
 
@@ -261,6 +262,7 @@ async function loadMoreIssues() {
     } finally {
         setLoading(false);
         removeSkeletons();
+        updateCounts();
     }
 }
 
@@ -421,6 +423,8 @@ function handleFilter() {
             card.classList.add('hidden');
         }
     });
+    
+    updateCounts(); // Update empty states after filtering
 }
 
 // Modal handling
@@ -444,6 +448,18 @@ function openModal(issue) {
     stateEl.className = `state-badge ${issue.state}`;
     
     document.getElementById('modal-comments').textContent = issue.comments;
+    document.getElementById('modal-date').textContent = new Date(issue.created_at).toLocaleDateString();
+    
+    const assigneeContainer = document.getElementById('modal-assignee');
+    if (issue.assignee) {
+        assigneeContainer.innerHTML = `
+            <img class="assignee-avatar" src="${issue.assignee.avatar_url}" alt="${issue.assignee.login}">
+            <span>${issue.assignee.login}</span>
+        `;
+    } else {
+        assigneeContainer.innerHTML = '<span>Unassigned</span>';
+    }
+
     document.getElementById('modal-link').href = issue.html_url;
     
     // Labels
@@ -521,6 +537,19 @@ function updateCounts() {
         // Count actual issue cards, not skeletons
         const count = col.querySelectorAll('.issue-card:not(.skeleton-card):not(.hidden)').length;
         columnCounts[status].textContent = count;
+        
+        // Handle empty state
+        let emptyState = col.querySelector('.empty-state');
+        if (count === 0 && !state.isLoading) {
+            if (!emptyState) {
+                emptyState = document.createElement('div');
+                emptyState.className = 'empty-state';
+                emptyState.textContent = 'No issues found';
+                col.appendChild(emptyState);
+            }
+        } else {
+            if (emptyState) emptyState.remove();
+        }
     });
 }
 

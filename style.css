@@ -317,6 +317,17 @@ button {
     border-radius: var(--radius-sm);
 }
 
+.empty-state {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 2rem 1rem;
+    font-style: italic;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 /* Issue Card */
 .issue-card {
     background-color: var(--bg-color);

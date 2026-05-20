@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Issue Tracker</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="app-header">
+        <h1>GitHub Issue Tracker</h1>
+        <div class="search-container">
+            <input type="text" id="repo-input" placeholder="owner/repository (e.g., yash-techligence/Advanced-CSS-JS)" value="yash-techligence/Advanced-CSS-JS">
+            <button id="search-btn">Search</button>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <div id="error-message" class="error-message hidden"></div>
+
+        <section id="repo-list-container" class="repo-list-container hidden">
+            <div class="repo-list-header">
+                <h2>Repositories for <span id="user-name-display"></span></h2>
+                <button id="refresh-repos-btn" class="btn-secondary" title="Refresh Repositories">&#x21bb;</button>
+            </div>
+            <div id="repo-list" class="repo-list">
+                <!-- Repository cards go here -->
+            </div>
+        </section>
+
+        <section id="repo-details" class="repo-details hidden">
+            <h2 id="repo-name"></h2>
+            <div class="repo-stats">
+                <span class="stat-badge"><i class="icon-star"></i> Stars: <span id="repo-stars"></span></span>
+                <span class="stat-badge"><i class="icon-fork"></i> Forks: <span id="repo-forks"></span></span>
+                <span class="stat-badge"><i class="icon-issue"></i> Open Issues: <span id="repo-open-issues"></span></span>
+            </div>
+        </section>
+
+        <section id="board-controls" class="board-controls hidden">
+            <div class="filter-container">
+                <input type="text" id="filter-input" placeholder="Filter by keyword, label, or assignee...">
+            </div>
+        </section>
+
+        <section class="kanban-board">
+            <div class="kanban-column" data-status="open">
+                <div class="column-header">
+                    <h3>Open</h3>
+                    <span class="issue-count">0</span>
+                </div>
+                <div class="column-content drop-zone" id="col-open">
+                    <!-- Issue cards go here -->
+                </div>
+            </div>
+
+            <div class="kanban-column" data-status="in-review">
+                <div class="column-header">
+                    <h3>In Review</h3>
+                    <span class="issue-count">0</span>
+                </div>
+                <div class="column-content drop-zone" id="col-in-review">
+                    <!-- Issue cards go here -->
+                </div>
+            </div>
+
+            <div class="kanban-column" data-status="closed">
+                <div class="column-header">
+                    <h3>Closed</h3>
+                    <span class="issue-count">0</span>
+                </div>
+                <div class="column-content drop-zone" id="col-closed">
+                    <!-- Issue cards go here -->
+                </div>
+            </div>
+        </section>
+
+        <div class="load-more-container hidden">
+            <button id="load-more-btn" class="btn-primary">Load More Issues</button>
+        </div>
+    </main>
+
+    <!-- Modal for Issue Details -->
+    <div id="issue-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <div class="modal-header">
+                <h2 id="modal-title"></h2>
+                <span id="modal-number" class="issue-number"></span>
+            </div>
+            <div class="modal-meta">
+                <span id="modal-state" class="state-badge"></span>
+                <span class="meta-item">Comments: <span id="modal-comments"></span></span>
+                <a id="modal-link" href="#" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+            </div>
+            <div id="modal-labels" class="labels-container"></div>
+            <div class="modal-body-container">
+                <p id="modal-body"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template for Skeleton Loader -->
+    <template id="skeleton-template">
+        <div class="issue-card skeleton-card">
+            <div class="skeleton skeleton-title"></div>
+            <div class="skeleton skeleton-meta"></div>
+            <div class="skeleton skeleton-labels"></div>
+        </div>
+    </template>
+
+    <script src="script.js"></script>
+</body>
+</html>

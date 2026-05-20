@@ -1,570 +1,593 @@
-// Global state
-const state = {
-    repo: null,
-    issues: [],
-    page: 1,
-    perPage: 10,
-    isLoading: false,
-    currentQuery: '',
-    draggedIssueId: null,
-    repoPollInterval: null
-};
+// GitHub Tracker Pro App
+
+const API_BASE = 'https://api.github.com';
 
 // DOM Elements
-const elements = {
-    repoInput: document.getElementById('repo-input'),
-    searchBtn: document.getElementById('search-btn'),
-    errorMessage: document.getElementById('error-message'),
-    repoDetails: document.getElementById('repo-details'),
-    repoListContainer: document.getElementById('repo-list-container'),
-    repoListHeaderBtn: document.getElementById('refresh-repos-btn'),
-    repoList: document.getElementById('repo-list'),
-    userNameDisplay: document.getElementById('user-name-display'),
-    repoName: document.getElementById('repo-name'),
-    repoStars: document.getElementById('repo-stars'),
-    repoForks: document.getElementById('repo-forks'),
-    repoOpenIssues: document.getElementById('repo-open-issues'),
-    boardControls: document.getElementById('board-controls'),
-    filterInput: document.getElementById('filter-input'),
-    kanbanBoard: document.querySelector('.kanban-board'),
-    loadMoreContainer: document.querySelector('.load-more-container'),
-    loadMoreBtn: document.getElementById('load-more-btn'),
-    modal: document.getElementById('issue-modal'),
-    closeBtn: document.querySelector('.close-btn'),
-    skeletonTemplate: document.getElementById('skeleton-template')
+const usernameSearchInput = document.getElementById('username-search');
+const fetchUserBtn = document.getElementById('fetch-user-btn');
+const repoSearchInput = document.getElementById('repo-search');
+const repoListDropdown = document.getElementById('repo-list');
+const repoDropdownContainer = document.getElementById('repo-dropdown-container');
+const issueSearchInput = document.getElementById('issue-search');
+const loadMoreBtn = document.getElementById('load-more-btn');
+const toastContainer = document.getElementById('toast-container');
+
+// Kanban Columns
+const kanbanColumns = {
+    open: document.getElementById('zone-open'),
+    review: document.getElementById('zone-review'),
+    closed: document.getElementById('zone-closed')
 };
 
-// Columns
-const columns = {
-    open: document.getElementById('col-open'),
-    'in-review': document.getElementById('col-in-review'),
-    closed: document.getElementById('col-closed')
+const kanbanCounts = {
+    open: document.getElementById('count-open'),
+    review: document.getElementById('count-review'),
+    closed: document.getElementById('count-closed')
 };
 
-// Column counts
-const columnCounts = {
-    open: document.querySelector('[data-status="open"] .issue-count'),
-    'in-review': document.querySelector('[data-status="in-review"] .issue-count'),
-    closed: document.querySelector('[data-status="closed"] .issue-count')
+// Modal Elements
+const modal = document.getElementById('issue-modal');
+const closeModalBtn = document.getElementById('close-modal-btn');
+
+// State
+let state = {
+    username: '',
+    repositories: [],
+    selectedRepo: null,
+    allIssues: [], // original fetched dataset
+    openIssues: [],
+    inReviewIssues: [],
+    closedIssues: [],
+    page: 1,
+    perPage: 10,
+    hasMore: true,
+    isLoading: false,
+    draggedIssue: null,
+    issueStatusMap: {} // Map issue ID to status (open, review, closed) to persist moves during session
 };
 
-// Event Listeners
-elements.searchBtn.addEventListener('click', handleSearch);
-elements.repoInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') handleSearch();
-});
-elements.loadMoreBtn.addEventListener('click', loadMoreIssues);
-elements.filterInput.addEventListener('input', handleFilter);
-elements.closeBtn.addEventListener('click', closeModal);
-elements.modal.addEventListener('click', (e) => {
-    if (e.target === elements.modal) closeModal();
-});
-elements.repoListHeaderBtn.addEventListener('click', () => {
-    if (state.currentQuery && !state.currentQuery.includes('/')) {
-        fetchUserRepos(state.currentQuery, true);
-    }
-});
+// Initialization
+function init() {
+    setupEventListeners();
+}
 
-// Setup Drag and Drop on Columns
-Object.values(columns).forEach(column => {
-    column.addEventListener('dragover', handleDragOver);
-    column.addEventListener('dragleave', handleDragLeave);
-    column.addEventListener('drop', handleDrop);
-});
-
-// Event Delegation for Kanban Board
-elements.kanbanBoard.addEventListener('dragstart', handleDragStart);
-elements.kanbanBoard.addEventListener('dragend', handleDragEnd);
-elements.kanbanBoard.addEventListener('click', handleCardClick);
-
-// Functions
-async function handleSearch() {
-    const query = elements.repoInput.value.trim();
-    if (!query) return;
+// Utilities
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
     
-    // Clear UI
-    hideError();
-    clearColumns();
-    elements.repoListContainer.classList.add('hidden');
-    elements.repoDetails.classList.add('hidden');
-    elements.boardControls.classList.add('hidden');
-    elements.kanbanBoard.classList.add('hidden');
-    elements.loadMoreContainer.classList.add('hidden');
+    let icon = 'ri-information-line';
+    if (type === 'error') icon = 'ri-error-warning-line';
+    if (type === 'success') icon = 'ri-checkbox-circle-line';
+    
+    toast.innerHTML = `<i class="${icon}"></i> <span>${message}</span>`;
+    
+    toastContainer.appendChild(toast);
+    
+    // Trigger animation
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
 
-    if (query.includes('/')) {
-        // Direct repository search
-        stopRepoPolling();
-        state.currentQuery = query;
-        state.page = 1;
-        state.issues = [];
-        updateCounts();
-        await fetchRepoAndIssues();
-    } else {
-        // User search
-        state.currentQuery = query;
-        await fetchUserRepos(query);
+function showErrorMessage(message) {
+    showToast(message, 'error');
+}
+
+// API Calls
+async function apiCall(endpoint) {
+    try {
+        const response = await fetch(`${API_BASE}${endpoint}`);
+        
+        if (!response.ok) {
+            if (response.status === 403) {
+                throw new Error('GitHub API rate limit exceeded.');
+            } else if (response.status === 404) {
+                throw new Error('Resource not found.');
+            } else {
+                throw new Error(`API Error: ${response.status}`);
+            }
+        }
+        
+        return await response.json();
+    } catch (error) {
+        throw error; // Let the caller handle the UI part
     }
 }
 
-async function fetchUserRepos(username, isSilent = false) {
-    if (state.isLoading && !isSilent) return;
+async function fetchRepositories(username) {
+    if (!username) return;
     
-    if (!isSilent) setLoading(true);
-    if (isSilent) elements.repoListHeaderBtn.classList.add('rotating');
+    state.username = username;
+    repoSearchInput.value = '';
+    repoSearchInput.disabled = true;
+    repoListDropdown.innerHTML = '<li class="dropdown-item" style="color: var(--text-muted); text-align: center;">Loading...</li>';
+    repoListDropdown.classList.remove('hidden');
+    
+    try {
+        const repos = await apiCall(`/users/${username}/repos?sort=updated&per_page=100`);
+        state.repositories = repos;
+        
+        repoSearchInput.disabled = false;
+        renderRepositoryList(repos);
+        showToast(`Loaded repositories for ${username}`, 'success');
+        
+        // Reset issue state
+        state.selectedRepo = null;
+        state.allIssues = [];
+        categorizeIssues();
+        clearKanbanBoards();
+        
+    } catch (error) {
+        console.error("Failed to fetch repositories", error);
+        repoListDropdown.innerHTML = '<li class="dropdown-item" style="color: var(--danger); text-align: center;">Failed to load repositories. Invalid user?</li>';
+        state.repositories = [];
+        showErrorMessage(error.message);
+        
+        setTimeout(() => {
+            repoListDropdown.classList.add('hidden');
+        }, 2000);
+    }
+}
+
+async function fetchIssues(repoName, page = 1) {
+    if (state.isLoading || !state.username) return;
+    
+    state.isLoading = true;
+    showLoadingSkeletons(page === 1);
+    
+    if (page === 1) {
+        state.allIssues = [];
+        state.page = 1;
+        state.hasMore = true;
+        clearKanbanBoards();
+    }
 
     try {
-        const url = `https://api.github.com/users/${username}/repos?sort=updated&per_page=100`;
-        const res = await fetch(url);
-
-        if (res.status === 404) throw new Error('User not found.');
-        if (res.status === 403) throw new Error('API rate limit exceeded.');
-        if (!res.ok) throw new Error(`Error: ${res.status} ${res.statusText}`);
-
-        const repos = await res.json();
+        // Fetch both open and closed issues
+        const issues = await apiCall(`/repos/${state.username}/${repoName}/issues?state=all&page=${page}&per_page=${state.perPage}&sort=updated`);
         
-        if (repos.length === 0) {
-            elements.repoList.innerHTML = '<p style="padding:1rem;color:var(--text-secondary);">This user has no public repositories.</p>';
-            elements.repoListContainer.classList.remove('hidden');
-        } else {
-            renderRepoList(username, repos);
+        if (issues.length < state.perPage) {
+            state.hasMore = false;
         }
-
-        startRepoPolling(username);
-
+        
+        // Filter out pull requests
+        const actualIssues = issues.filter(issue => !issue.pull_request);
+        
+        state.allIssues = [...state.allIssues, ...actualIssues];
+        
+        // Update local status map for new issues based on Github state
+        actualIssues.forEach(issue => {
+            if (!state.issueStatusMap[issue.id]) {
+                state.issueStatusMap[issue.id] = issue.state === 'open' ? 'open' : 'closed';
+            }
+        });
+        
+        categorizeIssues();
+        
+        const currentQuery = issueSearchInput.value;
+        renderAllColumns(currentQuery);
+        
+        updateLoadMoreButton();
+        
     } catch (error) {
-        if (!isSilent) showError(error.message);
+        console.error("Failed to fetch issues", error);
+        showErrorMessage(error.message);
     } finally {
-        if (!isSilent) setLoading(false);
-        if (isSilent) elements.repoListHeaderBtn.classList.remove('rotating');
+        state.isLoading = false;
+        removeLoadingSkeletons();
     }
 }
 
-function startRepoPolling(username) {
-    stopRepoPolling();
-    state.repoPollInterval = setInterval(() => {
-        if (!elements.repoListContainer.classList.contains('hidden')) {
-            fetchUserRepos(username, true);
-        } else {
-            stopRepoPolling();
-        }
-    }, 60000); // Check every 60 seconds
-}
-
-function stopRepoPolling() {
-    if (state.repoPollInterval) {
-        clearInterval(state.repoPollInterval);
-        state.repoPollInterval = null;
-    }
-}
-
-function renderRepoList(username, repos) {
-    elements.userNameDisplay.textContent = username;
-    elements.repoList.innerHTML = '';
+// Data Processing
+function categorizeIssues() {
+    state.openIssues = [];
+    state.inReviewIssues = [];
+    state.closedIssues = [];
     
+    state.allIssues.forEach(issue => {
+        const status = state.issueStatusMap[issue.id];
+        if (status === 'open') {
+            state.openIssues.push(issue);
+        } else if (status === 'review') {
+            state.inReviewIssues.push(issue);
+        } else if (status === 'closed') {
+            state.closedIssues.push(issue);
+        }
+    });
+}
+
+function filterIssuesArray(issuesArr, query) {
+    if (!query) return issuesArr;
+    
+    query = query.toLowerCase();
+    return issuesArr.filter(issue => {
+        const matchesTitle = issue.title.toLowerCase().includes(query);
+        const matchesBody = issue.body && issue.body.toLowerCase().includes(query);
+        const matchesLabel = issue.labels.some(l => l.name.toLowerCase().includes(query));
+        const matchesAssignee = issue.assignee && issue.assignee.login.toLowerCase().includes(query);
+        const matchesNumber = issue.number.toString().includes(query);
+        
+        return matchesTitle || matchesBody || matchesLabel || matchesAssignee || matchesNumber;
+    });
+}
+
+// Rendering
+function renderRepositoryList(repos) {
+    repoListDropdown.innerHTML = '';
+    
+    if (repos.length === 0) {
+        repoListDropdown.innerHTML = '<li class="dropdown-item" style="color: var(--text-muted); text-align: center;">No repositories found</li>';
+        return;
+    }
+
     repos.forEach(repo => {
-        const card = document.createElement('div');
-        card.className = 'repo-list-card';
-        card.innerHTML = `
-            <h3>${escapeHTML(repo.name)}</h3>
-            <p>${escapeHTML(repo.description || 'No description available.')}</p>
-            <div class="repo-list-stats">
-                <span>⭐ ${repo.stargazers_count}</span>
-                <span>🍴 ${repo.forks_count}</span>
-                <span>🔴 ${repo.open_issues_count} issues</span>
+        const li = document.createElement('li');
+        li.className = 'dropdown-item';
+        li.dataset.name = repo.name;
+        
+        li.innerHTML = `
+            <div class="repo-name">
+                <span>${repo.name}</span>
+                ${repo.stargazers_count > 0 ? `<span style="color: var(--warning);"><i class="ri-star-fill"></i> ${repo.stargazers_count}</span>` : ''}
+            </div>
+            <div class="repo-stats">
+                <span><i class="ri-record-circle-line"></i> ${repo.open_issues_count} open issues</span>
+                <span><i class="ri-git-branch-line"></i> ${repo.forks_count} forks</span>
             </div>
         `;
-        card.addEventListener('click', () => {
-            elements.repoInput.value = repo.full_name;
-            handleSearch();
-        });
-        elements.repoList.appendChild(card);
-    });
-
-    elements.repoListContainer.classList.remove('hidden');
-}
-
-async function fetchRepoAndIssues() {
-    if (state.isLoading) return;
-    
-    setLoading(true);
-    showSkeletons();
-
-    try {
-        const repoUrl = `https://api.github.com/repos/${state.currentQuery}`;
-        const issuesUrl = `https://api.github.com/repos/${state.currentQuery}/issues?state=all&per_page=${state.perPage}&page=${state.page}`;
-
-        // Fetch Repo and initial Issues concurrently
-        const [repoRes, issuesRes] = await Promise.all([
-            fetch(repoUrl),
-            fetch(issuesUrl)
-        ]);
-
-        if (repoRes.status === 404) throw new Error('Repository not found. Please check the owner/repository format.');
-        if (repoRes.status === 403 || issuesRes.status === 403) throw new Error('API rate limit exceeded. Please try again later.');
-        if (!repoRes.ok) throw new Error(`Error: ${repoRes.status} ${repoRes.statusText}`);
-        if (!issuesRes.ok) throw new Error(`Error: ${issuesRes.status} ${issuesRes.statusText}`);
-
-        const repoData = await repoRes.json();
-        const issuesData = await issuesRes.json();
-
-        // Update Repo Details
-        state.repo = repoData;
-        displayRepoDetails();
-
-        // Process Issues
-        processFetchedIssues(issuesData);
-
-        elements.repoDetails.classList.remove('hidden');
-        elements.boardControls.classList.remove('hidden');
-        elements.kanbanBoard.classList.remove('hidden');
         
-        // Show load more if we got a full page
-        if (issuesData.length === state.perPage) {
-            elements.loadMoreContainer.classList.remove('hidden');
-        } else {
-            elements.loadMoreContainer.classList.add('hidden');
-        }
-
-    } catch (error) {
-        showError(error.message || 'A network error occurred while fetching data.');
-        clearColumns();
-    } finally {
-        setLoading(false);
-        removeSkeletons();
-        updateCounts();
-    }
+        repoListDropdown.appendChild(li);
+    });
 }
 
-async function loadMoreIssues() {
-    if (state.isLoading) return;
-    state.page++;
+function clearKanbanBoards() {
+    Object.values(kanbanColumns).forEach(col => {
+        col.innerHTML = '';
+    });
+    updateColumnCounts();
+}
+
+function showLoadingSkeletons(clearFirst = true) {
+    if (clearFirst) clearKanbanBoards();
     
-    setLoading(true);
-    showSkeletons();
-
-    try {
-        const issuesUrl = `https://api.github.com/repos/${state.currentQuery}/issues?state=all&per_page=${state.perPage}&page=${state.page}`;
-        const issuesRes = await fetch(issuesUrl);
-
-        if (issuesRes.status === 403) throw new Error('API rate limit exceeded.');
-        if (!issuesRes.ok) throw new Error(`Error fetching issues: ${issuesRes.status}`);
-
-        const issuesData = await issuesRes.json();
-        processFetchedIssues(issuesData);
-
-        if (issuesData.length < state.perPage) {
-            elements.loadMoreContainer.classList.add('hidden');
-        }
-
-    } catch (error) {
-        showError(error.message);
-        state.page--; // Revert page increment
-    } finally {
-        setLoading(false);
-        removeSkeletons();
-        updateCounts();
-    }
-}
-
-function processFetchedIssues(issuesData) {
-    issuesData.forEach(issue => {
-        // Only add if not already in state
-        if (!state.issues.find(i => i.id === issue.id)) {
-            // Determine initial status based on GH state
-            let status = 'open';
-            if (issue.state === 'closed') {
-                status = 'closed';
-            } else if (issue.assignee || issue.pull_request) {
-                // Heuristic: if assigned or is PR, maybe in-review
-                status = 'in-review';
+    const template = document.getElementById('skeleton-template');
+    
+    ['open', 'review', 'closed'].forEach(status => {
+        const col = kanbanColumns[status];
+        if (col.children.length === 0 || (col.children.length === 1 && col.children[0].classList.contains('empty-state'))) {
+            col.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                col.appendChild(template.content.cloneNode(true));
             }
-            
-            const issueObj = {
-                ...issue,
-                kanbanStatus: status
-            };
-            state.issues.push(issueObj);
-            renderIssue(issueObj);
         }
     });
-    updateCounts();
-    
-    // Apply current filter if any
-    if (elements.filterInput.value) {
-        handleFilter();
-    }
 }
 
-function renderIssue(issue) {
+function removeLoadingSkeletons() {
+    document.querySelectorAll('.skeleton').forEach(el => el.remove());
+}
+
+function renderAllColumns(query = '') {
+    renderOpenIssues(query);
+    renderInReviewIssues(query);
+    renderClosedIssues(query);
+    updateColumnCounts();
+}
+
+function renderOpenIssues(query) {
+    const filtered = filterIssuesArray(state.openIssues, query);
+    kanbanColumns.open.innerHTML = '';
+    
+    if (filtered.length === 0) {
+        let text = (state.openIssues.length > 0 && query) ? 'No matching issues found' : 'No open issues';
+        kanbanColumns.open.innerHTML = `<div class="empty-state">${text}</div>`;
+        return;
+    }
+    
+    filtered.forEach(issue => {
+        kanbanColumns.open.appendChild(createIssueCard(issue));
+    });
+}
+
+function renderInReviewIssues(query) {
+    const filtered = filterIssuesArray(state.inReviewIssues, query);
+    kanbanColumns.review.innerHTML = '';
+    
+    if (filtered.length === 0) {
+        let text = (state.inReviewIssues.length > 0 && query) ? 'No matching issues found' : 'No issues in review';
+        kanbanColumns.review.innerHTML = `<div class="empty-state">${text}</div>`;
+        return;
+    }
+    
+    filtered.forEach(issue => {
+        kanbanColumns.review.appendChild(createIssueCard(issue));
+    });
+}
+
+function renderClosedIssues(query) {
+    const filtered = filterIssuesArray(state.closedIssues, query);
+    kanbanColumns.closed.innerHTML = '';
+    
+    if (filtered.length === 0) {
+        let text = (state.closedIssues.length > 0 && query) ? 'No matching issues found' : 'No closed issues';
+        kanbanColumns.closed.innerHTML = `<div class="empty-state">${text}</div>`;
+        return;
+    }
+    
+    filtered.forEach(issue => {
+        kanbanColumns.closed.appendChild(createIssueCard(issue));
+    });
+}
+
+function getContrastYIQ(hexcolor){
+    if(hexcolor.length === 6) {
+        const r = parseInt(hexcolor.substr(0,2),16);
+        const g = parseInt(hexcolor.substr(2,2),16);
+        const b = parseInt(hexcolor.substr(4,2),16);
+        const yiq = ((r*299)+(g*587)+(b*114))/1000;
+        return (yiq >= 128) ? 'black' : 'white';
+    }
+    return 'white';
+}
+
+function createIssueCard(issue) {
     const card = document.createElement('div');
     card.className = 'issue-card';
     card.draggable = true;
     card.dataset.id = issue.id;
-
-    // Build labels HTML
-    let labelsHtml = '';
-    if (issue.labels && issue.labels.length > 0) {
-        labelsHtml = `<div class="labels-container">
-            ${issue.labels.map(label => {
-                const color = label.color;
-                // Calculate contrast color for text
-                const r = parseInt(color.substr(0, 2), 16);
-                const g = parseInt(color.substr(2, 2), 16);
-                const b = parseInt(color.substr(4, 2), 16);
-                const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-                const textColor = (yiq >= 128) ? '#000' : '#fff';
-                return `<span class="label" style="background-color: #${color}; color: ${textColor}">${label.name}</span>`;
-            }).join('')}
-        </div>`;
-    }
-
-    // Assignee HTML
-    let assigneeHtml = '';
-    if (issue.assignee) {
-        assigneeHtml = `
-            <div class="assignee">
-                <img class="assignee-avatar" src="${issue.assignee.avatar_url}" alt="${issue.assignee.login}">
-                <span>${issue.assignee.login}</span>
-            </div>
-        `;
-    }
-
-    const date = new Date(issue.created_at).toLocaleDateString();
-
+    card.dataset.issueObj = JSON.stringify(issue);
+    
+    const labelsHtml = issue.labels.map(label => {
+        const textColor = getContrastYIQ(label.color);
+        return `<span class="label" style="background-color: #${label.color}; color: ${textColor}; border-color: rgba(0,0,0,0.1)">${label.name}</span>`;
+    }).join('');
+    
+    const assigneeHtml = issue.assignee 
+        ? `<div class="assignee"><img src="${issue.assignee.avatar_url}" alt="${issue.assignee.login}"> ${issue.assignee.login}</div>` 
+        : `<div class="assignee"><i class="ri-user-unfollow-line"></i> Unassigned</div>`;
+        
     card.innerHTML = `
-        <div class="issue-number">#${issue.number}</div>
-        <div class="issue-title">${escapeHTML(issue.title)}</div>
-        ${labelsHtml}
-        <div class="issue-meta">
-            <span>${date}</span>
+        <div class="issue-card-header">
+            <h3 class="issue-title">${issue.title}</h3>
+            <span class="issue-number">#${issue.number}</span>
+        </div>
+        <div class="issue-labels">
+            ${labelsHtml}
+        </div>
+        <div class="issue-footer">
             ${assigneeHtml}
+            <div class="issue-meta">
+                <span class="meta-icon" title="Comments"><i class="ri-chat-1-line"></i> ${issue.comments}</span>
+                <span class="meta-icon" title="Created: ${new Date(issue.created_at).toLocaleDateString()}"><i class="ri-calendar-line"></i></span>
+            </div>
         </div>
     `;
-
-    columns[issue.kanbanStatus].appendChild(card);
-}
-
-// Drag and Drop Handlers
-function handleDragStart(e) {
-    const card = e.target.closest('.issue-card');
-    if (!card) return;
     
-    card.classList.add('dragging');
-    state.draggedIssueId = parseInt(card.dataset.id);
-    // Required for Firefox
-    e.dataTransfer.setData('text/plain', card.dataset.id);
-    e.dataTransfer.effectAllowed = 'move';
+    return card;
 }
 
-function handleDragEnd(e) {
-    const card = e.target.closest('.issue-card');
-    if (card) {
-        card.classList.remove('dragging');
+function updateColumnCounts() {
+    Object.keys(kanbanColumns).forEach(key => {
+        const count = kanbanColumns[key].querySelectorAll('.issue-card:not(.skeleton)').length;
+        kanbanCounts[key].textContent = count;
+    });
+}
+
+function updateLoadMoreButton() {
+    if (state.hasMore && state.selectedRepo) {
+        loadMoreBtn.classList.remove('hidden');
+    } else {
+        loadMoreBtn.classList.add('hidden');
     }
-    state.draggedIssueId = null;
-    
-    // Remove drag-over classes from all columns
-    Object.values(columns).forEach(col => col.classList.remove('drag-over'));
 }
 
-function handleDragOver(e) {
-    e.preventDefault(); // Necessary to allow dropping
-    e.dataTransfer.dropEffect = 'move';
-    const dropZone = e.currentTarget;
-    dropZone.classList.add('drag-over');
-}
-
-function handleDragLeave(e) {
-    e.currentTarget.classList.remove('drag-over');
-}
-
-function handleDrop(e) {
-    e.preventDefault();
-    const dropZone = e.currentTarget;
-    dropZone.classList.remove('drag-over');
-
-    const cardId = state.draggedIssueId;
-    if (!cardId) return;
-
-    const card = document.querySelector(`.issue-card[data-id="${cardId}"]`);
-    if (card) {
-        // Move DOM element
-        dropZone.appendChild(card);
-        
-        // Update state
-        const targetStatus = dropZone.parentElement.dataset.status;
-        const issue = state.issues.find(i => i.id === cardId);
-        if (issue) {
-            issue.kanbanStatus = targetStatus;
+// Event Listeners
+function setupEventListeners() {
+    // User search
+    fetchUserBtn.addEventListener('click', () => {
+        const user = usernameSearchInput.value.trim();
+        if (user) {
+            fetchRepositories(user);
         }
-        
-        updateCounts();
-    }
-}
+    });
 
-// Filtering
-function handleFilter() {
-    const term = elements.filterInput.value.toLowerCase();
-    const cards = document.querySelectorAll('.issue-card:not(.skeleton-card)');
-    
-    cards.forEach(card => {
-        const id = parseInt(card.dataset.id);
-        const issue = state.issues.find(i => i.id === id);
-        if (!issue) return;
+    usernameSearchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const user = e.target.value.trim();
+            if (user) {
+                fetchRepositories(user);
+            }
+        }
+    });
 
-        const matchTitle = issue.title.toLowerCase().includes(term);
-        const matchBody = issue.body ? issue.body.toLowerCase().includes(term) : false;
-        const matchLabel = issue.labels.some(l => l.name.toLowerCase().includes(term));
-        const matchAssignee = issue.assignee ? issue.assignee.login.toLowerCase().includes(term) : false;
-
-        if (matchTitle || matchBody || matchLabel || matchAssignee) {
-            card.classList.remove('hidden');
-        } else {
-            card.classList.add('hidden');
+    // Dropdown toggle
+    repoSearchInput.addEventListener('focus', () => {
+        if (!repoSearchInput.disabled && state.repositories.length > 0) {
+            repoListDropdown.classList.remove('hidden');
         }
     });
     
-    updateCounts(); // Update empty states after filtering
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!repoDropdownContainer.contains(e.target)) {
+            repoListDropdown.classList.add('hidden');
+        }
+    });
+
+    // Search repositories
+    repoSearchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        const filteredRepos = state.repositories.filter(repo => repo.name.toLowerCase().includes(query));
+        renderRepositoryList(filteredRepos);
+        repoListDropdown.classList.remove('hidden');
+    });
+
+    // Select repository
+    repoListDropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.dropdown-item');
+        if (item) {
+            const repoName = item.dataset.name;
+            state.selectedRepo = repoName;
+            repoSearchInput.value = repoName;
+            repoListDropdown.classList.add('hidden');
+            
+            // Highlight selected
+            document.querySelectorAll('.dropdown-item').forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+            
+            fetchIssues(repoName, 1);
+        }
+    });
+
+    // Filter Issues
+    issueSearchInput.addEventListener('input', (e) => {
+        const query = e.target.value;
+        renderAllColumns(query);
+    });
+
+    // Load More
+    loadMoreBtn.addEventListener('click', () => {
+        if (state.selectedRepo && !state.isLoading) {
+            state.page += 1;
+            fetchIssues(state.selectedRepo, state.page);
+        }
+    });
+
+    // Kanban Drag and Drop (Event Delegation on columns)
+    const board = document.querySelector('.kanban-board');
+    
+    board.addEventListener('dragstart', (e) => {
+        const card = e.target.closest('.issue-card');
+        if (card) {
+            state.draggedIssue = card;
+            setTimeout(() => card.classList.add('dragging'), 0);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', card.dataset.id);
+        }
+    });
+
+    board.addEventListener('dragend', (e) => {
+        const card = e.target.closest('.issue-card');
+        if (card) {
+            card.classList.remove('dragging');
+            state.draggedIssue = null;
+            
+            document.querySelectorAll('.kanban-column .column-body').forEach(col => {
+                col.classList.remove('drag-over');
+            });
+        }
+    });
+
+    board.addEventListener('dragover', (e) => {
+        e.preventDefault(); 
+        const dropzone = e.target.closest('.column-body');
+        if (dropzone) {
+            dropzone.classList.add('drag-over');
+            e.dataTransfer.dropEffect = 'move';
+        }
+    });
+
+    board.addEventListener('dragleave', (e) => {
+        const dropzone = e.target.closest('.column-body');
+        if (dropzone && !dropzone.contains(e.relatedTarget)) {
+            dropzone.classList.remove('drag-over');
+        }
+    });
+
+    board.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const dropzone = e.target.closest('.column-body');
+        
+        if (dropzone && state.draggedIssue) {
+            dropzone.classList.remove('drag-over');
+            
+            const status = dropzone.parentElement.dataset.status;
+            const issueId = parseInt(state.draggedIssue.dataset.id);
+            
+            // Update the state map
+            state.issueStatusMap[issueId] = status;
+            
+            // Recategorize issues into open/closed/review arrays
+            categorizeIssues();
+            
+            // Rerender all columns dynamically to maintain structure and filters
+            const currentQuery = issueSearchInput.value;
+            renderAllColumns(currentQuery);
+            
+            showToast(`Issue moved to ${status}`, 'success');
+        }
+    });
+
+    // Open Modal
+    board.addEventListener('click', (e) => {
+        const card = e.target.closest('.issue-card');
+        if (card) {
+            const issue = JSON.parse(card.dataset.issueObj);
+            openModal(issue);
+        }
+    });
+
+    // Close Modal
+    closeModalBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
 }
 
-// Modal handling
-function handleCardClick(e) {
-    const card = e.target.closest('.issue-card');
-    if (!card || e.target.closest('.skeleton-card')) return;
-
-    const id = parseInt(card.dataset.id);
-    const issue = state.issues.find(i => i.id === id);
-    if (issue) {
-        openModal(issue);
-    }
-}
-
+// Modal Functions
 function openModal(issue) {
-    document.getElementById('modal-title').textContent = issue.title;
-    document.getElementById('modal-number').textContent = `#${issue.number}`;
+    document.getElementById('modal-issue-number').textContent = `#${issue.number}`;
+    document.getElementById('modal-issue-title').textContent = issue.title;
     
-    const stateEl = document.getElementById('modal-state');
-    stateEl.textContent = issue.state;
-    stateEl.className = `state-badge ${issue.state}`;
+    const statusEl = document.getElementById('modal-issue-status');
+    const localStatus = state.issueStatusMap[issue.id];
     
-    document.getElementById('modal-comments').textContent = issue.comments;
-    document.getElementById('modal-date').textContent = new Date(issue.created_at).toLocaleDateString();
+    let statusText = localStatus === 'review' ? 'In Review' : (localStatus.charAt(0).toUpperCase() + localStatus.slice(1));
     
-    const assigneeContainer = document.getElementById('modal-assignee');
-    if (issue.assignee) {
-        assigneeContainer.innerHTML = `
-            <img class="assignee-avatar" src="${issue.assignee.avatar_url}" alt="${issue.assignee.login}">
-            <span>${issue.assignee.login}</span>
-        `;
-    } else {
-        assigneeContainer.innerHTML = '<span>Unassigned</span>';
-    }
-
-    document.getElementById('modal-link').href = issue.html_url;
+    statusEl.className = `status-badge ${issue.state === 'closed' || localStatus === 'closed' ? 'closed' : 'open'}`;
+    statusEl.innerHTML = statusText;
+    
+    document.getElementById('modal-issue-author').innerHTML = `<i class="ri-user-line"></i> ${issue.user.login}`;
+    document.getElementById('modal-issue-date').innerHTML = `<i class="ri-calendar-line"></i> ${new Date(issue.created_at).toLocaleDateString()}`;
+    document.getElementById('modal-issue-comments').innerHTML = `<i class="ri-chat-1-line"></i> ${issue.comments} comments`;
     
     // Labels
-    const labelsContainer = document.getElementById('modal-labels');
-    labelsContainer.innerHTML = '';
-    if (issue.labels && issue.labels.length > 0) {
-        issue.labels.forEach(label => {
-            const span = document.createElement('span');
-            span.className = 'label';
-            const r = parseInt(label.color.substr(0, 2), 16);
-            const g = parseInt(label.color.substr(2, 2), 16);
-            const b = parseInt(label.color.substr(4, 2), 16);
-            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-            const textColor = (yiq >= 128) ? '#000' : '#fff';
-            span.style.backgroundColor = `#${label.color}`;
-            span.style.color = textColor;
-            span.textContent = label.name;
-            labelsContainer.appendChild(span);
-        });
-    }
-
-    document.getElementById('modal-body').textContent = issue.body || 'No description provided.';
+    const labelsContainer = document.getElementById('modal-issue-labels');
+    labelsContainer.innerHTML = issue.labels.map(label => {
+        const textColor = getContrastYIQ(label.color);
+        return `<span class="label" style="background-color: #${label.color}; color: ${textColor}; font-size: 0.8rem; padding: 0.25rem 0.75rem;">${label.name}</span>`;
+    }).join('');
     
-    elements.modal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden'; // Prevent scrolling
+    // Body text
+    const bodyContainer = document.getElementById('modal-issue-body');
+    if (issue.body) {
+        let formattedBody = issue.body
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;') // escape html
+            .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>') // code blocks
+            .replace(/`([^`]+)`/g, '<code>$1</code>') // inline code
+            .replace(/\n/g, '<br>'); // new lines
+            
+        bodyContainer.innerHTML = formattedBody;
+    } else {
+        bodyContainer.innerHTML = '<em>No description provided.</em>';
+    }
+    
+    document.getElementById('modal-issue-link').href = issue.html_url;
+    
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden'; 
 }
 
 function closeModal() {
-    elements.modal.classList.add('hidden');
+    modal.classList.add('hidden');
     document.body.style.overflow = '';
 }
 
-// UI Helpers
-function displayRepoDetails() {
-    if (!state.repo) return;
-    elements.repoName.textContent = state.repo.full_name;
-    elements.repoStars.textContent = state.repo.stargazers_count.toLocaleString();
-    elements.repoForks.textContent = state.repo.forks_count.toLocaleString();
-    elements.repoOpenIssues.textContent = state.repo.open_issues_count.toLocaleString();
-}
-
-function setLoading(isLoading) {
-    state.isLoading = isLoading;
-    elements.searchBtn.disabled = isLoading;
-    elements.repoInput.disabled = isLoading;
-    elements.loadMoreBtn.disabled = isLoading;
-    elements.loadMoreBtn.textContent = isLoading ? 'Loading...' : 'Load More Issues';
-}
-
-function showSkeletons() {
-    for (let i = 0; i < 3; i++) {
-        const clone1 = elements.skeletonTemplate.content.cloneNode(true);
-        const clone2 = elements.skeletonTemplate.content.cloneNode(true);
-        const clone3 = elements.skeletonTemplate.content.cloneNode(true);
-        
-        columns.open.appendChild(clone1);
-        columns['in-review'].appendChild(clone2);
-        columns.closed.appendChild(clone3);
-    }
-}
-
-function removeSkeletons() {
-    document.querySelectorAll('.skeleton-card').forEach(el => el.remove());
-}
-
-function clearColumns() {
-    Object.values(columns).forEach(col => {
-        col.innerHTML = '';
-    });
-}
-
-function updateCounts() {
-    Object.keys(columns).forEach(status => {
-        const col = columns[status];
-        // Count actual issue cards, not skeletons
-        const count = col.querySelectorAll('.issue-card:not(.skeleton-card):not(.hidden)').length;
-        columnCounts[status].textContent = count;
-        
-        // Handle empty state
-        let emptyState = col.querySelector('.empty-state');
-        if (count === 0 && !state.isLoading) {
-            if (!emptyState) {
-                emptyState = document.createElement('div');
-                emptyState.className = 'empty-state';
-                emptyState.textContent = 'No issues found';
-                col.appendChild(emptyState);
-            }
-        } else {
-            if (emptyState) emptyState.remove();
-        }
-    });
-}
-
-function showError(msg) {
-    elements.errorMessage.textContent = msg;
-    elements.errorMessage.classList.remove('hidden');
-}
-
-function hideError() {
-    elements.errorMessage.classList.add('hidden');
-}
-
-function escapeHTML(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
+// Start application
+init();

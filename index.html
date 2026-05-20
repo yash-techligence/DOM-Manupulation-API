@@ -3,112 +3,138 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub Issue Tracker</title>
-    <link rel="stylesheet" href="style.css">
+    <title>GitHub Tracker Pro | Yash Techligence</title>
+    <meta name="description" content="A dynamic Kanban-style GitHub Issues Tracker for the yash-techligence repository.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 </head>
 <body>
+    <div id="toast-container"></div>
     <header class="app-header">
-        <h1>GitHub Issue Tracker</h1>
-        <div class="search-container">
-            <input type="text" id="repo-input" placeholder="owner/repository (e.g., yash-techligence/Advanced-CSS-JS)" value="yash-techligence/Advanced-CSS-JS">
-            <button id="search-btn">Search</button>
+        <div class="header-content">
+            <div class="logo">
+                <i class="ri-github-fill"></i>
+                <h1>GitHub Tracker <span>Pro</span></h1>
+            </div>
+            
+            <div class="controls-container">
+                <div class="user-selector">
+                    <i class="ri-user-search-line user-icon"></i>
+                    <input type="text" id="username-search" placeholder="Enter GitHub Username..." autocomplete="off">
+                    <button id="fetch-user-btn" class="icon-btn" aria-label="Fetch user"><i class="ri-arrow-right-line"></i></button>
+                </div>
+
+                <div class="repo-selector">
+                    <div class="custom-select" id="repo-dropdown-container">
+                        <input type="text" id="repo-search" placeholder="Search Repositories..." autocomplete="off" disabled>
+                        <i class="ri-arrow-down-s-line select-icon"></i>
+                        <ul id="repo-list" class="dropdown-list hidden">
+                            <!-- Repositories populated dynamically -->
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="issue-filter">
+                    <i class="ri-search-line"></i>
+                    <input type="text" id="issue-search" placeholder="Filter issues by keyword, label...">
+                </div>
+            </div>
         </div>
     </header>
 
-    <main class="app-main">
-        <div id="error-message" class="error-message hidden"></div>
-
-        <section id="repo-list-container" class="repo-list-container hidden">
-            <div class="repo-list-header">
-                <h2>Repositories for <span id="user-name-display"></span></h2>
-                <button id="refresh-repos-btn" class="btn-secondary" title="Refresh Repositories">&#x21bb;</button>
+    <main class="kanban-board">
+        <!-- Open Column -->
+        <div class="kanban-column" id="col-open" data-status="open">
+            <div class="column-header">
+                <h2><i class="ri-record-circle-line" style="color: var(--success);"></i> Open</h2>
+                <span class="issue-count" id="count-open">0</span>
             </div>
-            <div id="repo-list" class="repo-list">
-                <!-- Repository cards go here -->
+            <div class="column-body kanban-dropzone" id="zone-open">
+                <div class="empty-state">Select a repository to view issues</div>
+                <!-- Issue cards go here -->
             </div>
-        </section>
+        </div>
 
-        <section id="repo-details" class="repo-details hidden">
-            <h2 id="repo-name"></h2>
-            <div class="repo-stats">
-                <span class="stat-badge"><i class="icon-star"></i> Stars: <span id="repo-stars"></span></span>
-                <span class="stat-badge"><i class="icon-fork"></i> Forks: <span id="repo-forks"></span></span>
-                <span class="stat-badge"><i class="icon-issue"></i> Open Issues: <span id="repo-open-issues"></span></span>
+        <!-- In Review Column -->
+        <div class="kanban-column" id="col-review" data-status="review">
+            <div class="column-header">
+                <h2><i class="ri-eye-line" style="color: var(--warning);"></i> In Review</h2>
+                <span class="issue-count" id="count-review">0</span>
             </div>
-        </section>
-
-        <section id="board-controls" class="board-controls hidden">
-            <div class="filter-container">
-                <input type="text" id="filter-input" placeholder="Filter by keyword, label, or assignee...">
+            <div class="column-body kanban-dropzone" id="zone-review">
+                <div class="empty-state">No issues in review</div>
+                <!-- Issue cards go here -->
             </div>
-        </section>
+        </div>
 
-        <section class="kanban-board">
-            <div class="kanban-column" data-status="open">
-                <div class="column-header">
-                    <h3>Open</h3>
-                    <span class="issue-count">0</span>
-                </div>
-                <div class="column-content drop-zone" id="col-open">
-                    <!-- Issue cards go here -->
-                </div>
+        <!-- Closed Column -->
+        <div class="kanban-column" id="col-closed" data-status="closed">
+            <div class="column-header">
+                <h2><i class="ri-checkbox-circle-fill" style="color: var(--danger);"></i> Closed</h2>
+                <span class="issue-count" id="count-closed">0</span>
             </div>
-
-            <div class="kanban-column" data-status="in-review">
-                <div class="column-header">
-                    <h3>In Review</h3>
-                    <span class="issue-count">0</span>
-                </div>
-                <div class="column-content drop-zone" id="col-in-review">
-                    <!-- Issue cards go here -->
-                </div>
+            <div class="column-body kanban-dropzone" id="zone-closed">
+                <div class="empty-state">No closed issues</div>
+                <!-- Issue cards go here -->
             </div>
-
-            <div class="kanban-column" data-status="closed">
-                <div class="column-header">
-                    <h3>Closed</h3>
-                    <span class="issue-count">0</span>
-                </div>
-                <div class="column-content drop-zone" id="col-closed">
-                    <!-- Issue cards go here -->
-                </div>
-            </div>
-        </section>
-
-        <div class="load-more-container hidden">
-            <button id="load-more-btn" class="btn-primary">Load More Issues</button>
         </div>
     </main>
 
-    <!-- Modal for Issue Details -->
-    <div id="issue-modal" class="modal hidden">
+    <div class="pagination-container">
+        <button id="load-more-btn" class="primary-btn hidden">
+            <span>Load More Issues</span>
+            <i class="ri-loader-4-line spinner hidden"></i>
+        </button>
+    </div>
+
+    <!-- Issue Detail Modal -->
+    <div id="issue-modal" class="modal-overlay hidden">
         <div class="modal-content">
-            <span class="close-btn">&times;</span>
             <div class="modal-header">
-                <h2 id="modal-title"></h2>
-                <span id="modal-number" class="issue-number"></span>
+                <div class="modal-title-group">
+                    <span id="modal-issue-number" class="issue-number">#000</span>
+                    <h2 id="modal-issue-title">Issue Title</h2>
+                </div>
+                <button class="close-modal" id="close-modal-btn"><i class="ri-close-line"></i></button>
             </div>
             <div class="modal-meta">
-                <span id="modal-state" class="state-badge"></span>
-                <span class="meta-item">Comments: <span id="modal-comments"></span></span>
-                <span class="meta-item">Created: <span id="modal-date"></span></span>
-                <div id="modal-assignee" class="assignee"></div>
-                <a id="modal-link" href="#" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+                <span id="modal-issue-status" class="status-badge">Open</span>
+                <span id="modal-issue-author" class="meta-item"><i class="ri-user-line"></i> Author</span>
+                <span id="modal-issue-date" class="meta-item"><i class="ri-calendar-line"></i> Date</span>
+                <span id="modal-issue-comments" class="meta-item"><i class="ri-chat-1-line"></i> 0 comments</span>
             </div>
-            <div id="modal-labels" class="labels-container"></div>
-            <div class="modal-body-container">
-                <p id="modal-body"></p>
+            <div class="modal-labels" id="modal-issue-labels">
+                <!-- Labels populated here -->
+            </div>
+            <div class="modal-body">
+                <div class="markdown-body" id="modal-issue-body">
+                    <!-- Issue body content -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a href="#" target="_blank" rel="noopener noreferrer" id="modal-issue-link" class="primary-btn outline">
+                    <i class="ri-external-link-line"></i> View on GitHub
+                </a>
             </div>
         </div>
     </div>
 
-    <!-- Template for Skeleton Loader -->
+    <!-- Skeleton Template -->
     <template id="skeleton-template">
-        <div class="issue-card skeleton-card">
-            <div class="skeleton skeleton-title"></div>
-            <div class="skeleton skeleton-meta"></div>
-            <div class="skeleton skeleton-labels"></div>
+        <div class="issue-card skeleton">
+            <div class="skeleton-line title"></div>
+            <div class="skeleton-line meta"></div>
+            <div class="skeleton-tags">
+                <div class="skeleton-tag"></div>
+                <div class="skeleton-tag"></div>
+            </div>
+            <div class="skeleton-footer">
+                <div class="skeleton-avatar"></div>
+                <div class="skeleton-icon"></div>
+            </div>
         </div>
     </template>
 
